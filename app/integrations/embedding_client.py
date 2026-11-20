@@ -8,7 +8,7 @@ def get_model():
     import torch
     from sentence_transformers import SentenceTransformer
     torch.set_num_threads(1)
-    return SentenceTransformer(settings.embedding_model,device='gpu')
+    return SentenceTransformer(settings.embedding_model,device='cpu')
 
 
 def encode(texts:list[str],kind:str='passage')->list[list[float]]:
