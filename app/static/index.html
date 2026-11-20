@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="보고서를 검색하고, 내용을 확인하고, AI로 핵심을 요약하는 Report Agent.">
+  <meta name="theme-color" content="#123e43">
+  <title>Report Agent · 보고서 워크스페이스</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#workspace">보고서 영역으로 건너뛰기</a>
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="brand" href="/" aria-label="Report Agent 홈">
+        <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M6 3.5h8l4 4v13H6z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M14 3.5v5h4M9 12h6M9 16h4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></span>
+        <span>Report <strong>Agent</strong></span>
+      </a>
+      <div class="header-right">
+        <span class="workspace-label">보고서 워크스페이스</span>
+        <button id="health-button" type="button" class="connection-button" title="연결 상태 다시 확인">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m5 12 4 4L19 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span id="health-label">DB 연결 확인 중</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="main-shell" id="workspace">
+    <section class="page-heading" aria-labelledby="page-title">
+      <div>
+        <p class="eyebrow">REPORT WORKSPACE</p>
+        <h1 id="page-title">보고서에서 인사이트까지.</h1>
+        <p class="page-description">필요한 보고서를 찾고, AI와 함께 핵심을 확인하세요.</p>
+      </div>
+      <button type="button" id="new-report-button" class="button button-primary">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        새 보고서
+      </button>
+    </section>
+
+    <section class="search-bar" aria-label="보고서 검색">
+      <form id="search-form" class="search-form">
+        <div class="search-mode-wrap">
+          <label for="search-mode" class="sr-only">검색 방식</label>
+          <select id="search-mode" name="mode">
+            <option value="title">제목으로 검색</option>
+            <option value="similar">관련 보고서 찾기</option>
+          </select>
+        </div>
+        <div class="search-input-wrap">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" stroke="currentColor" stroke-width="1.8"/><path d="m15.5 15.5 4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+          <label for="search-query" class="sr-only">검색어</label>
+          <input id="search-query" name="query" type="search" maxlength="200" placeholder="찾고 싶은 보고서의 제목을 입력하세요" autocomplete="off">
+        </div>
+        <button id="search-submit" type="submit" class="button button-primary search-submit">검색</button>
+        <button id="reset-search" type="button" class="button button-quiet">전체 보기</button>
+      </form>
+    </section>
+
+    <div id="global-message" class="global-message" role="status" aria-live="polite" hidden></div>
+
+    <div class="workspace-grid">
+      <section class="list-pane" aria-labelledby="list-heading">
+        <header class="pane-heading">
+          <div class="pane-heading-line">
+            <h2 id="list-heading">전체 보고서</h2>
+            <span id="report-count" class="count-badge">—</span>
+          </div>
+          <p id="list-description" class="muted">보고서를 선택하면 오른쪽에서 내용을 확인할 수 있습니다.</p>
+        </header>
+        <div id="list-message" class="message message-error" role="alert" hidden></div>
+        <div id="report-list" class="report-list" aria-label="보고서 목록" aria-live="polite"></div>
+        <div id="list-empty" class="list-empty">
+          <svg class="empty-icon" viewBox="0 0 40 40" fill="none" aria-hidden="true"><path d="M10 6h13l7 7v21H10z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M23 6v8h7M15 21h10M15 27h7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          <p>보고서를 불러오는 중입니다.</p>
+        </div>
+        <nav class="pagination" aria-label="보고서 목록 페이지">
+          <button type="button" id="previous-page" class="pagination-button" disabled>이전</button>
+          <span id="page-label">—</span>
+          <button type="button" id="next-page" class="pagination-button" disabled>다음</button>
+        </nav>
+      </section>
+
+      <section class="detail-pane" aria-label="보고서 상세">
+        <div id="detail-empty" class="detail-empty">
+          <div class="detail-empty-art" aria-hidden="true">
+            <svg viewBox="0 0 80 80" fill="none"><rect x="19" y="11" width="42" height="58" rx="5" stroke="currentColor" stroke-width="1.7"/><path d="M30 26h20M30 35h20M30 44h13" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><circle cx="56" cy="56" r="13" fill="#edf6f4" stroke="currentColor" stroke-width="1.7"/><path d="m51 56 3 3 6-6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <h2>어떤 보고서가 궁금한가요?</h2>
+          <p data-empty-message>목록에서 보고서를 선택하세요.<br>전체 내용과 AI 요약을 여기에서 확인할 수 있습니다.</p>
+          <div class="empty-flow" aria-hidden="true"><span>보고서 찾기</span><span>내용 확인</span><span>AI 요약</span></div>
+        </div>
+
+        <article id="detail-panel" class="detail-panel" hidden>
+          <header class="report-heading">
+            <div class="report-topline">
+              <div class="report-labels"><span id="report-category" class="category-chip"></span><span id="report-id" class="report-id"></span></div>
+              <div class="report-actions">
+                <button type="button" id="edit-report-button" class="button button-small button-quiet">수정</button>
+                <button type="button" id="delete-report-button" class="button button-small button-danger-quiet">삭제</button>
+              </div>
+            </div>
+            <h2 id="report-title" tabindex="-1"></h2>
+            <div class="report-metadata">
+              <span><span class="metadata-label">작성자</span><span id="report-author"></span></span>
+              <span><span class="metadata-label">수정일</span><time id="report-updated"></time></span>
+            </div>
+          </header>
+
+          <section class="overview-section" aria-labelledby="overview-heading">
+            <h3 id="overview-heading">보고서 개요</h3>
+            <p id="report-overview"></p>
+          </section>
+
+          <section class="summary-section" aria-labelledby="summary-heading">
+            <div class="section-heading-row">
+              <div>
+                <h3 id="summary-heading"><svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m12 3 2.4 6.6L21 12l-6.6 2.4L12 21l-2.4-6.6L3 12l6.6-2.4L12 3Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>AI 요약</h3>
+                <p id="summary-status" class="summary-status" role="status" aria-live="polite">보고서의 핵심을 짧게 정리합니다.</p>
+              </div>
+              <button type="button" id="summary-button" class="button button-summary">요약하기</button>
+            </div>
+            <div id="summary-error" class="message message-error" role="alert" hidden></div>
+            <div id="summary-output" class="summary-output" aria-live="polite" hidden></div>
+          </section>
+
+          <section class="content-section" aria-labelledby="content-heading">
+            <h3 id="content-heading">본문</h3>
+            <div id="report-content" class="report-content"></div>
+          </section>
+          <section class="details-section" aria-labelledby="details-heading">
+            <h3 id="details-heading">상세 정보</h3>
+            <dl id="report-details" class="report-details"></dl>
+          </section>
+        </article>
+      </section>
+    </div>
+    <footer class="page-footer"><span>Report Agent</span><p>보고서를 연결하고, 핵심에 집중하세요.</p></footer>
+  </main>
+
+  <dialog id="editor-dialog" class="editor-dialog" aria-labelledby="editor-title">
+    <form id="editor-form" class="editor-form">
+      <header class="dialog-heading">
+        <div><p class="eyebrow">REPORT</p><h2 id="editor-title">새 보고서</h2></div>
+        <button id="editor-close" type="button" class="icon-button" aria-label="보고서 입력창 닫기"><svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
+      </header>
+      <div class="dialog-body">
+        <p class="form-intro">보고서 종류에 맞게 내용을 작성하세요. 선택 항목을 제외하고 모두 입력합니다.</p>
+        <div id="editor-error" class="message message-error" role="alert" hidden></div>
+        <div class="form-grid">
+          <div class="field"><label for="field-category">보고서 종류</label><select id="field-category" name="category_code" required><option value="">종류를 선택하세요</option></select></div>
+          <div class="field"><label for="field-author">작성자</label><input id="field-author" name="author" type="text" maxlength="100" required autocomplete="name" placeholder="이름을 입력하세요"></div>
+          <div class="field field-full"><label for="field-title">제목</label><input id="field-title" name="title" type="text" maxlength="200" required placeholder="보고서의 제목을 입력하세요"></div>
+          <div class="field field-full"><label for="field-overview">개요 <span class="field-hint">10~1,000자</span></label><textarea id="field-overview" name="overview" minlength="10" maxlength="1000" rows="3" required placeholder="보고서가 다루는 내용을 간단하게 설명하세요."></textarea></div>
+          <div class="field field-full"><label for="field-content">본문</label><textarea id="field-content" name="content" maxlength="20000" rows="7" required placeholder="보고서의 전체 내용을 작성하세요."></textarea><p id="prompt-note" class="field-note" hidden></p></div>
+        </div>
+        <section class="category-fields-section" aria-labelledby="category-fields-heading"><h3 id="category-fields-heading">유형별 상세 정보</h3><div id="detail-fields" class="form-grid"></div></section>
+      </div>
+      <footer class="dialog-footer"><button type="button" id="editor-cancel" class="button button-secondary">취소</button><button type="submit" id="editor-save" class="button button-primary">저장하기</button></footer>
+    </form>
+  </dialog>
+
+  <dialog id="delete-dialog" class="delete-dialog" aria-labelledby="delete-heading" aria-describedby="delete-description">
+    <div class="delete-dialog-body"><span class="delete-symbol" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24" fill="none"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v5M14 11v5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></span><h2 id="delete-heading">보고서를 삭제할까요?</h2><p id="delete-title-text" class="delete-title-text"></p><p id="delete-description">삭제한 보고서는 복구할 수 없습니다.</p><div id="delete-error" class="message message-error" role="alert" hidden></div></div>
+    <footer class="dialog-footer"><button id="delete-cancel" type="button" class="button button-secondary">취소</button><button id="delete-confirm" type="button" class="button button-danger">삭제하기</button></footer>
+  </dialog>
+</body>
+</html>

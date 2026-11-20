@@ -1,6 +1,8 @@
 """보고서 처리 Agent 애플리케이션 진입점. 실행: python -m app.main"""
+from pathlib import Path
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from app.api import reports,search,agent
 from app.db.session import get_session_factory
@@ -11,6 +13,15 @@ app=FastAPI(title='Report Agent | 2026-11-20',version='1.0.0')
 app.include_router(reports.router)
 app.include_router(search.router)
 app.include_router(agent.router)
+
+# 브라우저용 파일은 이 폴더만 공개합니다. 프로젝트 루트와 .env는 공개하지 않습니다.
+STATIC_DIR = Path(__file__).resolve().parent / 'static'
+app.mount('/static', StaticFiles(directory=STATIC_DIR), name='static')
+
+@app.get('/', response_class=FileResponse, include_in_schema=False)
+def frontend():
+    # 화면의 JavaScript가 기존 /api/v1/... API를 같은 서버로 요청합니다.
+    return FileResponse(STATIC_DIR / 'index.html')
 
 @app.exception_handler(DomainError)
 def on_domain_error(request:Request,exc:DomainError):
