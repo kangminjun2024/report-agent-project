@@ -50,13 +50,36 @@ def call_llm(instructions:str,prompt:str,structured:bool=False,retries:int=0)->s
             if count<retries:
                 count+=1;time.sleep(min(0.5*2**count,2.0));continue
             raise DomainError(504,'LLM_TIMEOUT','LLM 호출 제한 시간을 초과했습니다.') from e
-        except (RateLimitError,APIConnectionError,APIStatusError) as e:
-            # 무한 재시도를 허용하지 않고, 민감한 예외 원문은 외부로 반환하지 않습니다.
-            status=getattr(e,'status_code',None)
-            retryable=status is None or status in (429,500,502,503,504)
-            if retryable and count<retries:
-                count+=1;time.sleep(min(0.5*2**count,2.0));continue
-            raise DomainError(503,'LLM_UNAVAILABLE','LLM 호출에 실패했습니다.') from e
+        except (RateLimitError, APIConnectionError, APIStatusError) as e:
+            status = getattr(e, "status_code", None)
+
+            # 실패 원인을 서버 터미널에서 확인하기 위한 진단 로그
+            print(
+                "[LLM 진단]",
+                f"exception={type(e).__name__}",
+                f"upstream_status={status}",
+                f"code={getattr(e, 'code', None)}",
+                f"type={getattr(e, 'type', None)}",
+                f"param={getattr(e, 'param', None)}",
+                f"model={settings.llm_model}",
+                f"cause={type(e.__cause__).__name__ if e.__cause__ else None}",
+                flush=True,
+            )
+
+            retryable = status is None or status in (
+                429, 500, 502, 503, 504
+            )
+
+            if retryable and count < retries:
+                count += 1
+                time.sleep(min(0.5 * 2**count, 2.0))
+                continue
+
+            raise DomainError(
+                503,
+                "LLM_UNAVAILABLE",
+                "LLM 호출에 실패했습니다.",
+            ) from e
 
 
 def summarize(content:str,style:str,max_sentences:int,allow_structured:bool,retries:int=0):
