@@ -1,6 +1,6 @@
 """Report Service: 6종 보고서 공통 CRUD/버전/동기화. Repository는 DB, Service는 업무 규칙."""
 
-from datetime import datetime, date
+from datetime import datetime,date,timezone
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from app.core.config import settings,at_least
@@ -8,7 +8,7 @@ from app.models.report import Report, ReportCategory, ReportEmbedding, PromptVer
 from app.repositories import report_repository as repo
 from app.integrations import embedding_client as emb
 from app.services.errors import DomainError
-from app.schemas.report import ReportCreate, DETAIL_SCHEMAS
+from app.schemas.report import ReportCreate, ReportUpdate, DETAIL_SCHEMAS
 from pydantic import ValidationError
 
 INPUT_FIELDS={
@@ -97,3 +97,65 @@ def get_report(db:Session,rid:int)->dict:
 def list_reports(db:Session,title:str|None,limit:int,offset:int,
                  category_code:str|None=None,updated_after:datetime|None=None):
     return repo.list_reports(db,title,limit,offset,category_code,updated_after)
+
+def update_report(db:Session,rid:int,data:ReportUpdate)->dict:
+    # 현업 관점: E5 계산에 실패해도 기존 Report/Embedding은 그대로 있어야 합니다.
+    old,cat,detail=repo.get_report_and_detail(db,rid)
+    code=cat.code
+    if code=='PROMPT':
+        if data.content!=detail.content:
+            raise DomainError(422,'VALIDATION_ERROR','Prompt 본문 변경은 활성 버전 변경 API로만 처리합니다.')
+        # Prompt PUT에는 prompt_text가 아닌 purpose만 받는다. 이전 본문을 입력하면 승인.
+        if set(data.details)!= {'purpose'}:
+            raise DomainError(422,'VALIDATION_ERROR','Prompt PUT details에는 purpose만 지정합니다.')
+        detail_data={'purpose':data.details['purpose']}
+        if not isinstance(detail_data['purpose'],str) or not detail_data['purpose'].strip():
+            raise DomainError(422,'VALIDATION_ERROR','purpose는 공백일 수 없습니다.')
+    else:detail_data=validate_details(code,data.details,data.content)
+    old_overview,old_revision=old.overview,old.revision
+    old_embedding=db.get(ReportEmbedding,rid)
+    # 같은 개요라도 모델·해시·Revision이 현재 상태와 맞는 벡터만 재사용합니다.
+    reusable=(old.index_status=='ready' and old_embedding is not None and
+              old_embedding.model_name==settings.embedding_model and
+              old_embedding.overview_hash==emb.overview_hash(old_overview) and
+              old_embedding.indexed_revision==old_revision)
+    needs_vector=(old_overview!=data.overview or not reusable)
+    # 읽기 트랜잭션을 닫고 Embedding을 계산하여 DB 연결을 불필요하게 점유하지 않습니다.
+    db.rollback()
+    vector=encode_overview(data.overview) if needs_vector else None
+    with db.begin():
+        report,cat,detail=repo.get_report_and_detail(db,rid,lock=True)
+        if at_least('advanced') and data.expected_revision is not None and data.expected_revision!=report.revision:
+            raise DomainError(409,'REVISION_CONFLICT','다른 요청에서 이미 보고서를 수정했습니다.')
+        # 읽은 뒤 다른 요청이 개요를 바꾼 경우 계산된 벡터와 현재 데이터 불일치 방지.
+        if report.overview!=old_overview or report.revision!=old_revision:
+            raise DomainError(409,'REVISION_CONFLICT','수정 중 보고서가 변경되었습니다. 다시 조회하세요.')
+        target=db.get(ReportEmbedding,rid)
+        # 잠금을 얻기 전 인덱스 상태가 바뀌었다면 잘못된 벡터를 ready로 승격하지 않습니다.
+        if not needs_vector and (report.index_status!='ready' or target is None or
+                target.model_name!=settings.embedding_model or
+                target.overview_hash!=emb.overview_hash(report.overview) or
+                target.indexed_revision!=report.revision):
+            raise DomainError(409,'REVISION_CONFLICT','수정 중 인덱스 상태가 변경되었습니다. 다시 조회하세요.')
+        for k in ('title','author','content'):setattr(detail,k,getattr(data,k))
+        for k,v in detail_data.items():setattr(detail,k,v)
+        detail.update_at=datetime.now(timezone.utc)
+        report.overview=data.overview
+        report.revision+=1
+        if needs_vector:
+            if target is None:
+                target=ReportEmbedding(report_id=rid);db.add(target)
+            target.embedding=vector
+            target.model_name=settings.embedding_model
+            target.overview_hash=emb.overview_hash(data.overview)
+            target.indexed_at=datetime.now(timezone.utc)
+        target.indexed_revision=report.revision
+        report.index_status='ready'
+        revision=report.revision
+    return {'report_id':rid,'revision':revision,'index_status':'ready','embedding_updated':needs_vector}
+
+def delete_report(db:Session,rid:int)->None:
+    with db.begin():
+        report=db.get(Report,rid)
+        if report is None:raise DomainError(404,'REPORT_NOT_FOUND','보고서가 없습니다.')
+        db.delete(report) # PostgreSQL ON DELETE CASCADE가 상세·Embedding·Prompt 버전을 제거
