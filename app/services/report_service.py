@@ -7,6 +7,7 @@ from app.core.config import settings,at_least
 from app.models.report import Report, ReportCategory, ReportEmbedding, PromptVersion, DETAIL_MODELS
 from app.repositories import report_repository as repo
 from app.integrations import embedding_client as emb
+from app.integrations import llm_client
 from app.services.errors import DomainError
 from app.schemas.report import ReportCreate, ReportUpdate, DETAIL_SCHEMAS
 from pydantic import ValidationError
@@ -159,3 +160,13 @@ def delete_report(db:Session,rid:int)->None:
         report=db.get(Report,rid)
         if report is None:raise DomainError(404,'REPORT_NOT_FOUND','보고서가 없습니다.')
         db.delete(report) # PostgreSQL ON DELETE CASCADE가 상세·Embedding·Prompt 버전을 제거
+
+def summarize_report(db:Session,rid:int,style:str='brief',max_sentences:int=3)->dict:
+    record=repo.read_report(db,rid)
+    result=llm_client.summarize(record['content'],style,max_sentences,allow_structured=at_least('intermediate'),
+                                retries=2 if at_least('advanced') else 0)
+    payload={'report_id':rid,'source_revision':record['revision'],**result,
+            'model':settings.llm_model,'status':'completed'}
+    if at_least('advanced') and llm_client.get_last_usage() is not None:
+        payload['usage']=llm_client.get_last_usage()
+    return payload
